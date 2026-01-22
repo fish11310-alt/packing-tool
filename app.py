@@ -19,7 +19,7 @@ tool_option = st.sidebar.selectbox(
 st.sidebar.markdown("---")
 
 # ==========================================
-# 3. 工具 A：智能裝箱計算機 (v2.1 新增重量計算)
+# 3. 工具 A：智能裝箱計算機
 # ==========================================
 if tool_option == "📦 智能裝箱計算機":
     st.title("📦 智能裝箱計算機")
@@ -48,12 +48,12 @@ if tool_option == "📦 智能裝箱計算機":
     div_thick = st.sidebar.number_input("隔板厚度 (mm)", value=3)
     side_lining = st.sidebar.checkbox("四周圍也要放隔板?", value=False)
 
-    # --- 輸入區 (改為4欄) ---
+    # --- 輸入區 ---
     c1, c2, c3, c4 = st.columns(4)
     p_l = c1.number_input("成品長度 (mm)", value=38.0)
     p_w = c2.number_input("成品寬度 (mm)", value=28.0)
     p_h = c3.number_input("成品高度 (mm)", value=7.2)
-    p_weight = c4.number_input("成品單重 (g)", value=5.0, help="請輸入單個成品的重量") # 新增
+    p_weight = c4.number_input("成品單重 (g)", value=5.0, help="請輸入單個成品的重量")
 
     # --- 計算按鈕 ---
     if st.button("🚀 開始計算", type="primary"):
@@ -99,7 +99,7 @@ if tool_option == "📦 智能裝箱計算機":
                     '數量': max_qty, 
                     '單價': min_cost, 
                     '總成本': best_total, 
-                    '整箱重(kg)': total_weight_kg, # 新增資料
+                    '整箱重(kg)': total_weight_kg,
                     '說明': best_detail
                 })
         
@@ -108,12 +108,11 @@ if tool_option == "📦 智能裝箱計算機":
             best = df.iloc[0]
             st.success(f"🏆 推薦：**{best['紙箱']}** | 成本 ${best['單價']:.4f}/pcs | 整箱約 **{best['整箱重(kg)']:.2f} kg**")
             
-            # 顯示表格 (設定顯示格式)
             st.dataframe(
                 df.style.format({
                     '單價': '${:.4f}', 
                     '總成本': '${:.1f}',
-                    '整箱重(kg)': '{:.2f} kg' # 設定小數點
+                    '整箱重(kg)': '{:.2f} kg'
                 }), 
                 use_container_width=True
             )
@@ -139,15 +138,4 @@ elif tool_option == "⚖️ 塑膠成品重量估算":
 
     with col2:
         st.subheader("2. 輸入體積")
-        calc_mode = st.radio("計算方式", ["直接輸入體積", "輸入長寬高(矩形)"])
-        volume = 0.0
-        if calc_mode == "直接輸入體積":
-            volume = st.number_input("體積 (cm³ / cc)", value=10.0)
-        else:
-            l = st.number_input("長 (mm)", value=100.0)
-            w = st.number_input("寬 (mm)", value=50.0)
-            h = st.number_input("厚 (mm)", value=2.0)
-            volume = (l * w * h) / 1000 
-
-    st.markdown("---")
-    if st.button("計算重量"):
+        calc_mode = st.radio("計算方式", ["直接輸入
