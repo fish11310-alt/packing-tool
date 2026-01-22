@@ -7,26 +7,28 @@ import math
 st.set_page_config(page_title="晟崴塑膠-智能裝箱選型系統", layout="wide")
 
 # ==========================================
-# 0. 定義公司標準紙箱資料庫 (含價格資訊)
+# 0. 定義公司標準紙箱資料庫
 # ==========================================
+# 常用規格清單 (這些會被強制置頂)
+FAVORITE_BOXES = ["NO.2-2 紙箱", "NO.8 紙箱", "NO.4 紙箱"]
+
 # 資料來源：晟崴塑膠紙箱規格一覽表.pdf
-# price: 紙箱單價, div_price: 隔板單價
 STANDARD_BOXES_RAW = [
     {"name": "方北特專用箱", "L": 564, "W": 424, "H": 362, "price": 39.0, "div_price": 46.0},
     {"name": "NO.2-2 紙箱", "L": 570, "W": 338, "H": 320, "price": 24.5, "div_price": 2.3},
-    {"name": "NO.3 紙箱",   "L": 570, "W": 340, "H": 248, "price": 21.8, "div_price": 0.0}, # 報價單未見專用隔板，設為0或需確認
+    {"name": "NO.3 紙箱",   "L": 570, "W": 340, "H": 248, "price": 21.8, "div_price": 0.0},
     {"name": "NO.4 紙箱",   "L": 324, "W": 228, "H": 226, "price": 13.8, "div_price": 1.4},
     {"name": "NO.8 紙箱",   "L": 450, "W": 306, "H": 424, "price": 24.5, "div_price": 2.0},
     {"name": "NO.9 紙箱",   "L": 650, "W": 470, "H": 460, "price": 35.0, "div_price": 3.3},
     {"name": "NO.10 紙箱",  "L": 648, "W": 468, "H": 360, "price": 32.5, "div_price": 4.0},
     {"name": "NO.14 紙箱",  "L": 392, "W": 314, "H": 412, "price": 19.5, "div_price": 1.8},
-    {"name": "NO.15-1 紙箱","L": 502, "W": 492, "H": 408, "price": 31.5, "div_price": 2.6}, # 參考NO.15隔板價格
+    {"name": "NO.15-1 紙箱","L": 502, "W": 492, "H": 408, "price": 31.5, "div_price": 2.6},
     {"name": "NO.16 紙箱",  "L": 534, "W": 400, "H": 340, "price": 31.0, "div_price": 3.4},
     {"name": "NO.17 紙箱",  "L": 536, "W": 400, "H": 560, "price": 36.5, "div_price": 3.4},
 ]
 
 # ==========================================
-# 1. 核心計算函數 (純計算邏輯)
+# 1. 核心計算函數
 # ==========================================
 def calculate_single_orientation(box_in_l, box_in_w, box_in_h, pL, pW, pH, divider_thickness, strategy_name):
     """
@@ -90,7 +92,6 @@ def find_best_box_option(box_data, prod_l, prod_w, prod_h, box_thick, div_thick)
     """
     為列表頁找出某個紙箱的「最佳」建議
     """
-    # 計算內徑
     in_L, in_W, in_H = box_data['L']-box_thick, box_data['W']-box_thick, box_data['H']-box_thick
     if in_L<=0 or in_W<=0 or in_H<=0: return None
 
@@ -108,7 +109,7 @@ def find_best_box_option(box_data, prod_l, prod_w, prod_h, box_thick, div_thick)
         if res and res['count'] > max_count:
             max_count = res['count']
             best_res = res
-            best_res['code'] = code # 記錄代碼以便預設選中
+            best_res['code'] = code 
 
     return best_res
 
@@ -130,9 +131,8 @@ with st.sidebar:
 
     st.header("3. 產品重/價")
     unit_weight = st.number_input("產品單重 (g)", value=85.5, step=0.1)
-    # unit_cost 暫時移除，因使用者更關注包裝成本
     
-    st.info("💡 已載入紙箱與隔板的採購單價，將自動計算分攤成本。")
+    st.info("💡 已置頂常用規格：NO.2-2、NO.8、NO.4")
 
 # ==========================================
 # 3. 主畫面邏輯
@@ -141,44 +141,49 @@ st.title("📦 晟崴塑膠 - 智能裝箱選型系統")
 
 # --- 步驟 A: 預計算列表數據 ---
 table_data = []
-valid_boxes = {} # 儲存有效紙箱資料供後續使用
 
 for box in STANDARD_BOXES_RAW:
     best = find_best_box_option(box, prod_l, prod_w, prod_h, box_thickness, divider_thickness)
     
     if best:
         # 計算包裝成本
-        # 公式：(紙箱價 + (層數-1)*隔板價) / 總數量
         div_count = max(0, best['layers'] - 1)
         total_pkg_cost = box['price'] + (div_count * box['div_price'])
         cost_per_pcs = total_pkg_cost / best['count'] if best['count'] > 0 else 0
         
-        display_name = f"{box['name']} ({box['L']}x{box['W']}x{box['H']})"
+        # 判斷是否為常用規格 (置頂邏輯)
+        is_favorite = box['name'] in FAVORITE_BOXES
+        fav_mark = "⭐ " if is_favorite else ""
+        
+        display_name = f"{fav_mark}{box['name']} ({box['L']}x{box['W']}x{box['H']})"
         
         table_data.append({
             "紙箱規格": display_name,
             "建議每箱數量": best['count'],
-            "單pcs包材費": cost_per_pcs, # 排序用數值
+            "單pcs包材費": cost_per_pcs, 
             "單pcs包材費(顯示)": f"${cost_per_pcs:.2f}",
             "建議擺放": best['strategy'],
             "總重量 (kg)": round((best['count'] * unit_weight) / 1000, 2),
             "raw_box": box,
-            "best_code": best['code'] # 用於預設選項
+            "best_code": best['code'],
+            # 排序權重：常用規格為 1，其他為 0
+            "_sort_priority": 1 if is_favorite else 0
         })
-        valid_boxes[display_name] = box
 
 if not table_data:
     st.error("❌ 無法裝入任何現有紙箱，請檢查尺寸設定。")
     st.stop()
 
 df = pd.DataFrame(table_data)
-# 預設排序：單pcs包材費由低到高 (最省錢優先)，或者數量由多到少
-# 這裡採用：數量由多到少
-df = df.sort_values(by="建議每箱數量", ascending=False).reset_index(drop=True)
+
+# --- 關鍵修改：雙重排序 ---
+# 1. 先排 _sort_priority (由大到小，讓常用規格置頂)
+# 2. 再排 建議每箱數量 (由大到小)
+df = df.sort_values(by=["_sort_priority", "建議每箱數量"], ascending=[False, False]).reset_index(drop=True)
 
 # --- 步驟 B: 顯示列表 ---
 st.subheader("📋 裝箱試算列表")
-st.caption("點選紙箱以進入「詳細設定模式」，可自由調整擺放方式。")
+st.caption("⭐ 星號為常用規格。點選紙箱以進入「詳細設定模式」。")
 
 event = st.dataframe(
     df,
@@ -199,22 +204,21 @@ if len(event.selection.rows) > 0:
     st.markdown("---")
     st.header(f"🔍 詳細設定：{box_data['name']}")
     
-    # 建立 3 欄佈局：控制、數據、圖面
+    # 建立 3 欄佈局
     col_ctrl, col_data, col_vis = st.columns([1, 1.2, 1.5])
     
     with col_ctrl:
         st.subheader("1. 選擇擺放方式")
-        # 使用 radio 讓使用者切換，並預設選中系統建議的
         orient_map = {'flat': 0, 'side': 1, 'upright': 2}
         orient_options = ['平放 (LxW)', '側放 (LxH)', '直立 (WxH)']
         
+        # 讓使用者改變主意
         selected_label = st.radio(
             "請選擇裝箱方向：",
             orient_options,
             index=orient_map.get(default_orient, 0)
         )
         
-        # 根據選擇重新計算
         in_L, in_W, in_H = box_data['L']-box_thickness, box_data['W']-box_thickness, box_data['H']-box_thickness
         
         if '平放' in selected_label:
@@ -224,12 +228,11 @@ if len(event.selection.rows) > 0:
         else:
             calc_res = calculate_single_orientation(in_L, in_W, in_H, prod_w, prod_h, prod_l, divider_thickness, '直立')
 
-    # 檢查是否裝得下
     if calc_res is None:
         with col_data:
             st.error("⚠️ 此擺放方式無法裝入箱內 (尺寸過大)。")
     else:
-        # 計算詳細成本
+        # 詳細成本
         div_count = max(0, calc_res['layers'] - 1)
         total_div_cost = div_count * box_data['div_price']
         total_pkg_cost = box_data['price'] + total_div_cost
@@ -240,7 +243,6 @@ if len(event.selection.rows) > 0:
             st.subheader("2. 成本與數據")
             st.metric("📦 每箱數量", f"{calc_res['count']} pcs", delta=f"{calc_res['layers']} 層")
             
-            # 這是用戶最想要的「單pcs包裝成本」
             st.metric("💰 單pcs包裝成本", f"${cost_per_pcs:.3f}", 
                      delta=f"總包材費: ${total_pkg_cost:.1f}", delta_color="inverse")
             
@@ -248,15 +250,10 @@ if len(event.selection.rows) > 0:
                      delta="⚠️ 超重" if total_weight > 18 else "OK",
                      delta_color="inverse" if total_weight > 18 else "normal")
             
-            st.caption(f"""
-            **計價公式:**
-            ( 紙箱${box_data['price']} + 隔板${box_data['div_price']} x {div_count}片 ) ÷ {calc_res['count']}
-            """)
+            st.caption(f"公式: ( 紙箱${box_data['price']} + 隔板${box_data['div_price']}x{div_count} ) ÷ {calc_res['count']}")
 
         with col_vis:
             st.subheader("3. 裝箱示意圖")
-            
-            # Canvas 繪圖代碼
             html_code = f"""
             <!DOCTYPE html>
             <html>
@@ -289,18 +286,15 @@ if len(event.selection.rows) > 0:
 
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     
-                    // 紙箱
                     ctx.strokeStyle = '#334155';
                     ctx.lineWidth = 3;
                     ctx.strokeRect(startX, startY, drawBoxL, drawBoxW);
                     
-                    // 尺寸文字
                     ctx.fillStyle = '#64748b';
                     ctx.font = '12px Arial';
                     ctx.fillText('內長 '+boxL, startX, startY - 5);
                     ctx.fillText('內寬 '+boxW, startX - 50, startY + 20);
 
-                    // 產品
                     ctx.fillStyle = '#60a5fa';
                     ctx.strokeStyle = '#1e40af';
                     ctx.lineWidth = 1;
