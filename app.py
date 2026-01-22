@@ -1,166 +1,334 @@
-import streamlit as st
-import math
-import pandas as pd
-import itertools
+<style>
+    /* 容器：限制影響範圍，只在 .sp-tool 內生效 */
+    .sp-tool {
+        font-family: 'Segoe UI', sans-serif;
+        background-color: #fff; /* 工具箱背景若是深色，可改這裡 */
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 30px;
+        max-width: 900px;
+        margin: 0 auto; /* 居中 */
+    }
 
-# ==========================================
-# 1. 網頁基礎設定
-# ==========================================
-st.set_page_config(page_title="晟崴塑膠-開發工具箱", page_icon="🛠️", layout="wide")
+    .sp-tool * {
+        box-sizing: border-box;
+    }
 
-# ==========================================
-# 2. 側邊欄：工具選擇菜單
-# ==========================================
-st.sidebar.title("🛠️ 晟崴開發工具箱")
-tool_option = st.sidebar.selectbox(
-    "請選擇功能：",
-    ["📦 智能裝箱計算機", "⚖️ 塑膠成品重量估算", "📝 待辦事項/備忘錄"]
-)
-st.sidebar.markdown("---")
+    /* 左側控制區 */
+    .sp-controls {
+        flex: 1;
+        min-width: 280px;
+    }
 
-# ==========================================
-# 3. 工具 A：智能裝箱計算機
-# ==========================================
-if tool_option == "📦 智能裝箱計算機":
-    st.title("📦 智能裝箱計算機")
-    st.markdown("針對成品尺寸與重量，自動計算最佳紙箱、成本與**整箱重量**。")
-    st.markdown("---")
+    /* 右側視覺區 */
+    .sp-visualizer {
+        flex: 1;
+        min-width: 280px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: #f8fafc;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #f1f5f9;
+    }
 
-    # --- 參數設定區 ---
-    st.sidebar.header("⚙️ 裝箱參數設定")
-    carton_db = {
-        'No.2-2': {'L': 570, 'W': 338, 'H': 320, 'price': 24.50, 'div_price': 2.30},
-        'No.4':   {'L': 324, 'W': 228, 'H': 226, 'price': 13.80, 'div_price': 1.40},
-        'No.8':   {'L': 450, 'W': 306, 'H': 424, 'price': 24.50, 'div_price': 2.00},
-        'No.3':   {'L': 570, 'W': 340, 'H': 248, 'price': 21.80, 'div_price': 2.30},
-        'No.9':   {'L': 650, 'W': 470, 'H': 460, 'price': 35.00, 'div_price': 3.30},
-        'No.10':  {'L': 648, 'W': 468, 'H': 360, 'price': 32.50, 'div_price': 4.00},
-        'No.14':  {'L': 392, 'W': 314, 'H': 412, 'price': 19.50, 'div_price': 1.80},
-        'No.15':  {'L': 510, 'W': 500, 'H': 416, 'price': 38.00, 'div_price': 2.60},
-        'No.15-1':{'L': 502, 'W': 492, 'H': 408, 'price': 31.50, 'div_price': 2.60},
-        'No.16':  {'L': 534, 'W': 400, 'H': 340, 'price': 31.00, 'div_price': 3.40},
-        'No.17':  {'L': 536, 'W': 400, 'H': 560, 'price': 36.50, 'div_price': 3.40},
+    .sp-tool h3 {
+        margin-top: 0;
+        color: #1e293b;
+        font-size: 1.1rem;
+        border-bottom: 2px solid #2563eb;
+        padding-bottom: 8px;
+        display: inline-block;
+        margin-bottom: 15px;
     }
     
-    deduct_l = st.sidebar.number_input("長度扣除 (mm)", value=15)
-    deduct_w = st.sidebar.number_input("寬度扣除 (mm)", value=15)
-    deduct_h = st.sidebar.number_input("高度扣除 (mm)", value=20)
-    div_thick = st.sidebar.number_input("隔板厚度 (mm)", value=3)
-    side_lining = st.sidebar.checkbox("四周圍也要放隔板?", value=False)
+    .sp-input-group { margin-bottom: 15px; }
+    .sp-label { display: block; margin-bottom: 5px; font-weight: 600; color: #475569; font-size: 0.9rem;}
+    
+    .sp-input-row { display: flex; gap: 8px; }
+    
+    .sp-input {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        font-size: 1rem;
+        transition: border 0.2s;
+    }
+    .sp-input:focus { border-color: #2563eb; outline: none; }
 
-    # --- 輸入區 ---
-    c1, c2, c3, c4 = st.columns(4)
-    p_l = c1.number_input("成品長度 (mm)", value=38.0)
-    p_w = c2.number_input("成品寬度 (mm)", value=28.0)
-    p_h = c3.number_input("成品高度 (mm)", value=7.2)
-    p_weight = c4.number_input("成品單重 (g)", value=5.0, help="請輸入單個成品的重量")
+    /* 按鈕群組 */
+    .sp-btn-group {
+        display: flex;
+        gap: 8px;
+        margin: 15px 0;
+    }
 
-    # --- 計算按鈕 ---
-    if st.button("🚀 開始計算", type="primary"):
-        results = []
-        for name, specs in carton_db.items():
-            inner_l = specs['L'] - deduct_l
-            inner_w = specs['W'] - deduct_w
-            inner_h = specs['H'] - deduct_h
-            if side_lining:
-                inner_l -= (div_thick * 2)
-                inner_w -= (div_thick * 2)
+    .sp-btn {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #2563eb;
+        background: white;
+        color: #2563eb;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+    }
 
-            p_dims = [p_l, p_w, p_h]
-            max_qty, min_cost = 0, float('inf')
-            best_detail, best_total = "", 0
-            
-            import itertools
-            for p in set(itertools.permutations(p_dims)):
-                nl = math.floor(inner_l/p[0])
-                nw = math.floor(inner_w/p[1])
-                per_layer = nl * nw
-                if per_layer == 0: continue
-                
-                av_h = inner_h - div_thick
-                u_h = p[2] + div_thick
-                layers = math.floor(av_h/u_h) if av_h >= 0 else 0
-                
-                qty = per_layer * layers
-                if qty > 0:
-                    cost = (specs['price'] + (layers+1)*specs['div_price']) / qty
-                    if cost < min_cost:
-                        min_cost = cost
-                        max_qty = qty
-                        best_total = specs['price'] + (layers+1)*specs['div_price']
-                        best_detail = f"{layers}層(每層{per_layer}) | 共{layers+1}隔板"
-            
-            if max_qty > 0:
-                # 計算總重 (kg)
-                total_weight_kg = (max_qty * p_weight) / 1000
-                
-                results.append({
-                    '紙箱': name, 
-                    '數量': max_qty, 
-                    '單價': min_cost, 
-                    '總成本': best_total, 
-                    '整箱重(kg)': total_weight_kg,
-                    '說明': best_detail
-                })
+    .sp-btn:hover { background: #eff6ff; }
+    .sp-btn.active {
+        background: #2563eb;
+        color: white;
+        box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+    }
+
+    /* 數據統計區 */
+    .sp-stats {
+        margin-top: 15px;
+        padding: 15px;
+        background: #eff6ff;
+        border-radius: 6px;
+        border: 1px solid #dbeafe;
+    }
+    .sp-stat-item {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        font-size: 0.9rem;
+        color: #334155;
+    }
+    .sp-stat-item.total {
+        font-size: 1.1rem;
+        font-weight: bold;
+        color: #2563eb;
+        border-top: 1px solid #bfdbfe;
+        padding-top: 10px;
+        margin-top: 10px;
+    }
+
+    /* Canvas 容器 */
+    .sp-canvas-wrapper {
+        position: relative;
+        margin-top: 10px;
+        border: 2px dashed #cbd5e1;
+        padding: 10px;
+        border-radius: 8px;
+        background: #fff;
+        display: flex;
+        justify-content: center;
+        box-shadow: inset 0 0 10px rgba(0,0,0,0.02);
+    }
+
+    .sp-legend {
+        font-size: 0.8rem;
+        color: #64748b;
+        margin-top: 10px;
+        text-align: center;
+    }
+</style>
+
+<div class="sp-tool" id="shengwei-packing-calculator">
+    
+    <div class="sp-controls">
+        <h3>📦 智能裝箱參數設定</h3>
         
-        if results:
-            df = pd.DataFrame(results).sort_values('單價')
-            best = df.iloc[0]
-            st.success(f"🏆 推薦：**{best['紙箱']}** | 成本 ${best['單價']:.4f}/pcs | 整箱約 **{best['整箱重(kg)']:.2f} kg**")
+        <div class="sp-input-group">
+            <label class="sp-label">紙箱內徑 (mm)</label>
+            <div class="sp-input-row">
+                <input type="number" class="sp-input sp-calc-trigger" id="sw-boxL" placeholder="長" value="500">
+                <input type="number" class="sp-input sp-calc-trigger" id="sw-boxW" placeholder="寬" value="400">
+                <input type="number" class="sp-input sp-calc-trigger" id="sw-boxH" placeholder="高" value="300">
+            </div>
+        </div>
+
+        <div class="sp-input-group">
+            <label class="sp-label">成品尺寸 (mm)</label>
+            <div class="sp-input-row">
+                <input type="number" class="sp-input sp-calc-trigger" id="sw-prodL" placeholder="長" value="120">
+                <input type="number" class="sp-input sp-calc-trigger" id="sw-prodW" placeholder="寬" value="80">
+                <input type="number" class="sp-input sp-calc-trigger" id="sw-prodH" placeholder="高" value="50">
+            </div>
+        </div>
+
+        <label class="sp-label">選擇擺放基準面 (自動旋轉)</label>
+        <div class="sp-btn-group">
+            <button class="sp-btn active" onclick="SW_PackTool.setOrientation('flat', this)">
+                平放<br><span style="font-size:0.8em; opacity:0.8">(L x W)</span>
+            </button>
+            <button class="sp-btn" onclick="SW_PackTool.setOrientation('side', this)">
+                側放<br><span style="font-size:0.8em; opacity:0.8">(L x H)</span>
+            </button>
+            <button class="sp-btn" onclick="SW_PackTool.setOrientation('upright', this)">
+                直立<br><span style="font-size:0.8em; opacity:0.8">(W x H)</span>
+            </button>
+        </div>
+
+        <div class="sp-stats">
+            <div class="sp-stat-item"><span>單層排列 (排 x 列):</span> <span id="sw-layer-layout">-</span></div>
+            <div class="sp-stat-item"><span>每層數量:</span> <span id="sw-per-layer">-</span></div>
+            <div class="sp-stat-item"><span>可堆疊層數:</span> <span id="sw-layers">-</span></div>
+            <div class="sp-stat-item"><span>空間利用率:</span> <span id="sw-utilization">-</span></div>
+            <div class="sp-stat-item total"><span>每箱總數量:</span> <span id="sw-total-count">-</span></div>
+        </div>
+    </div>
+
+    <div class="sp-visualizer">
+        <h3>📐 裝箱俯視圖 (第一層)</h3>
+        <div class="sp-canvas-wrapper">
+            <canvas id="sw-packingCanvas" width="280" height="280"></canvas>
+        </div>
+        <div class="sp-legend">
+            灰色框線：紙箱內徑 / 藍色區塊：成品<br>
+            視角：Top View (由上往下看)
+        </div>
+    </div>
+</div>
+
+<script>
+    // 使用 Namespace 封裝，避免汙染全域變數
+    const SW_PackTool = {
+        orientation: 'flat', // 預設擺放方向
+
+        init: function() {
+            // 綁定所有輸入框的監聽事件
+            const inputs = document.querySelectorAll('.sp-calc-trigger');
+            inputs.forEach(input => {
+                input.addEventListener('input', () => this.calculate());
+            });
             
-            st.dataframe(
-                df.style.format({
-                    '單價': '${:.4f}', 
-                    '總成本': '${:.1f}',
-                    '整箱重(kg)': '{:.2f} kg'
-                }), 
-                use_container_width=True
-            )
-        else:
-            st.error("❌ 產品太大，無法裝入任何紙箱")
+            // 初始執行一次
+            setTimeout(() => this.calculate(), 300);
+        },
 
-# ==========================================
-# 4. 工具 B：塑膠成品重量估算
-# ==========================================
-elif tool_option == "⚖️ 塑膠成品重量估算":
-    st.title("⚖️ 塑膠成品重量估算器")
-    st.info("輸入體積或尺寸，快速估算成品的重量 (g)。")
+        setOrientation: function(type, btnElement) {
+            this.orientation = type;
+            
+            // 更新按鈕樣式
+            document.querySelectorAll('.sp-btn').forEach(b => b.classList.remove('active'));
+            btnElement.classList.add('active');
+            
+            this.calculate();
+        },
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("1. 選擇材質")
-        materials = {
-            "PP (聚丙烯)": 0.91, "ABS (丙烯腈)": 1.05, "PC (聚碳酸酯)": 1.20,
-            "PA66 (尼龍)": 1.14, "PMMA (壓克力)": 1.19, "POM (塑鋼)": 1.41, "PVC (硬質)": 1.40
+        calculate: function() {
+            // 1. 獲取數值 (使用 ID 選擇器)
+            const boxL = parseFloat(document.getElementById('sw-boxL').value) || 0;
+            const boxW = parseFloat(document.getElementById('sw-boxW').value) || 0;
+            const boxH = parseFloat(document.getElementById('sw-boxH').value) || 0;
+            
+            const rawProdL = parseFloat(document.getElementById('sw-prodL').value) || 0;
+            const rawProdW = parseFloat(document.getElementById('sw-prodW').value) || 0;
+            const rawProdH = parseFloat(document.getElementById('sw-prodH').value) || 0;
+
+            if (boxL === 0 || rawProdL === 0) return;
+
+            // 2. 轉換擺放邏輯
+            let pL, pW, pH;
+            switch (this.orientation) {
+                case 'flat':    pL = rawProdL; pW = rawProdW; pH = rawProdH; break;
+                case 'side':    pL = rawProdL; pW = rawProdH; pH = rawProdW; break;
+                case 'upright': pL = rawProdW; pW = rawProdH; pH = rawProdL; break;
+            }
+
+            // 3. 計算排列 (比較兩種旋轉方案)
+            // 方案 A: 不旋轉
+            const colsA = Math.floor(boxL / pL);
+            const rowsA = Math.floor(boxW / pW);
+            const countA = colsA * rowsA;
+
+            // 方案 B: 旋轉 90 度
+            const colsB = Math.floor(boxL / pW);
+            const rowsB = Math.floor(boxW / pL);
+            const countB = colsB * rowsB;
+
+            let bestL, bestW, countLayer, cols, rows;
+            
+            // 選數量多的，若數量一樣優先選不旋轉的
+            if (countB > countA) {
+                bestL = pW; bestW = pL;
+                cols = colsB; rows = rowsB;
+                countLayer = countB;
+            } else {
+                bestL = pL; bestW = pW;
+                cols = colsA; rows = rowsA;
+                countLayer = countA;
+            }
+
+            // 4. 計算層數與總數
+            const layers = Math.floor(boxH / pH);
+            const totalCount = countLayer * layers;
+
+            // 5. 計算空間利用率
+            const productVol = rawProdL * rawProdW * rawProdH * totalCount;
+            const boxVol = boxL * boxW * boxH;
+            const utilization = ((productVol / boxVol) * 100).toFixed(1);
+
+            // 6. 更新 UI 數據
+            document.getElementById('sw-layer-layout').textContent = `${cols} x ${rows}`;
+            document.getElementById('sw-per-layer').textContent = countLayer;
+            document.getElementById('sw-layers').textContent = layers;
+            document.getElementById('sw-utilization').textContent = `${utilization}%`;
+            document.getElementById('sw-total-count').textContent = totalCount;
+
+            // 7. 繪圖
+            this.draw(boxL, boxW, bestL, bestW, cols, rows);
+        },
+
+        draw: function(boxL, boxW, pL, pW, cols, rows) {
+            const canvas = document.getElementById('sw-packingCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 自動縮放
+            const maxCanvasSize = 280;
+            const scale = Math.min((maxCanvasSize - 20) / boxL, (maxCanvasSize - 20) / boxW);
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const drawBoxL = boxL * scale;
+            const drawBoxW = boxW * scale;
+            const startX = (canvas.width - drawBoxL) / 2;
+            const startY = (canvas.height - drawBoxW) / 2;
+
+            // 畫紙箱
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(startX, startY, drawBoxL, drawBoxW);
+            
+            // 標示尺寸
+            ctx.fillStyle = '#64748b';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(boxL, canvas.width/2, startY - 6); 
+            ctx.textAlign = 'left';
+            ctx.fillText(boxW, startX + drawBoxL + 6, canvas.height/2); 
+
+            // 畫產品
+            ctx.fillStyle = '#60a5fa'; // 晟崴標準藍色調?
+            ctx.strokeStyle = '#1e40af'; 
+            ctx.lineWidth = 1;
+
+            const drawProdL = pL * scale;
+            const drawProdW = pW * scale;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const x = startX + (c * drawProdL);
+                    const y = startY + (r * drawProdW);
+                    // 間隙 padding
+                    const pad = 1; 
+                    ctx.fillRect(x + pad, y + pad, drawProdL - 2*pad, drawProdW - 2*pad);
+                    ctx.strokeRect(x + pad, y + pad, drawProdL - 2*pad, drawProdW - 2*pad);
+                }
+            }
         }
-        mat_name = st.selectbox("請選擇材質", list(materials.keys()))
-        density = st.number_input("密度 (g/cm³)", value=materials[mat_name], format="%.3f")
+    };
 
-    with col2:
-        st.subheader("2. 輸入體積")
-        calc_mode = st.radio("計算方式", ["直接輸入體積", "輸入長寬高(矩形)"])
-        volume = 0.0
-        if calc_mode == "直接輸入體積":
-            volume = st.number_input("體積 (cm³ / cc)", value=10.0)
-        else:
-            l = st.number_input("長 (mm)", value=100.0)
-            w = st.number_input("寬 (mm)", value=50.0)
-            h = st.number_input("厚 (mm)", value=2.0)
-            volume = (l * w * h) / 1000 
-
-    st.markdown("---")
-    # 這裡就是容易出錯的地方，請確保複製時這些縮排都有保留
-    if st.button("計算重量"):
-        weight = volume * density
-        st.metric(label="預估重量", value=f"{weight:.2f} g")
-        st.write(f"若模具為 1模4穴，單次射出量約為： **{weight*4:.2f} g**")
-
-# ==========================================
-# 5. 工具 C：簡單備忘錄
-# ==========================================
-elif tool_option == "📝 待辦事項/備忘錄":
-    st.title("📝 開發部待辦事項")
-    st.write("這是一個簡單的暫存區。")
-    user_input = st.text_area("寫下今天的筆記...", height=150)
-    if user_input:
-        st.warning("⚠️ 注意：這裡的筆記重新整理網頁後會消失。")
+    // 啟動工具
+    SW_PackTool.init();
+</script>
