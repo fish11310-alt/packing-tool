@@ -151,7 +151,7 @@ for box in STANDARD_BOXES_RAW:
         total_pkg_cost = box['price'] + (div_count * box['div_price'])
         cost_per_pcs = total_pkg_cost / best['count'] if best['count'] > 0 else 0
         
-        # 判斷是否為常用規格 (置頂邏輯)
+        # 判斷是否為常用規格
         is_favorite = box['name'] in FAVORITE_BOXES
         fav_mark = "⭐ " if is_favorite else ""
         
@@ -161,12 +161,11 @@ for box in STANDARD_BOXES_RAW:
             "紙箱規格": display_name,
             "建議每箱數量": best['count'],
             "單pcs包材費": cost_per_pcs, 
-            "單pcs包材費(顯示)": f"${cost_per_pcs:.2f}",
+            "單pcs包材費(顯示)": f"${cost_per_pcs:.3f}", # 顯示3位小數更精準
             "建議擺放": best['strategy'],
             "總重量 (kg)": round((best['count'] * unit_weight) / 1000, 2),
             "raw_box": box,
             "best_code": best['code'],
-            # 排序權重：常用規格為 1，其他為 0
             "_sort_priority": 1 if is_favorite else 0
         })
 
@@ -176,14 +175,35 @@ if not table_data:
 
 df = pd.DataFrame(table_data)
 
-# --- 關鍵修改：雙重排序 ---
-# 1. 先排 _sort_priority (由大到小，讓常用規格置頂)
-# 2. 再排 建議每箱數量 (由大到小)
+# --- NEW: 計算最佳推薦 (單pcs包材費最低者) ---
+# 先按成本排序，若成本一樣則選數量多的
+best_option_df = df.sort_values(by=["單pcs包材費", "建議每箱數量"], ascending=[True, False])
+best_box = best_option_df.iloc[0]
+
+# --- 顯示推薦區塊 ---
+st.markdown("### 🏆 系統最佳建議 (成本最低)")
+with st.container():
+    # 使用 success 樣式來突顯
+    cols = st.columns([2, 1, 1, 1])
+    with cols[0]:
+        st.markdown(f"**最佳紙箱：** `{best_box['紙箱規格']}`")
+    with cols[1]:
+        st.markdown(f"**每箱數量：** {best_box['建議每箱數量']} pcs")
+    with cols[2]:
+        st.markdown(f"**單pcs包材費：** :red[${best_box['單pcs包材費']:.3f}]")
+    with cols[3]:
+        st.markdown(f"**建議擺放：** {best_box['建議擺放']}")
+    
+    st.caption("此建議基於「最節省包材成本」計算，您可以參考此建議或在下方列表中選擇其他常用規格。")
+
+st.markdown("---")
+
+# --- 步驟 B: 顯示完整列表 ---
+# 排序邏輯：1.常用規格置頂 2.數量由多到少
 df = df.sort_values(by=["_sort_priority", "建議每箱數量"], ascending=[False, False]).reset_index(drop=True)
 
-# --- 步驟 B: 顯示列表 ---
-st.subheader("📋 裝箱試算列表")
-st.caption("⭐ 星號為常用規格。點選紙箱以進入「詳細設定模式」。")
+st.subheader("📋 裝箱試算列表 (常用規格置頂)")
+st.caption("⭐ 星號為常用規格。點選任一行可進入詳細設定。")
 
 event = st.dataframe(
     df,
@@ -204,7 +224,6 @@ if len(event.selection.rows) > 0:
     st.markdown("---")
     st.header(f"🔍 詳細設定：{box_data['name']}")
     
-    # 建立 3 欄佈局
     col_ctrl, col_data, col_vis = st.columns([1, 1.2, 1.5])
     
     with col_ctrl:
@@ -212,7 +231,6 @@ if len(event.selection.rows) > 0:
         orient_map = {'flat': 0, 'side': 1, 'upright': 2}
         orient_options = ['平放 (LxW)', '側放 (LxH)', '直立 (WxH)']
         
-        # 讓使用者改變主意
         selected_label = st.radio(
             "請選擇裝箱方向：",
             orient_options,
