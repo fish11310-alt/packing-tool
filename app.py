@@ -1,317 +1,227 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import math
 
-# 設定頁面標題與佈局
-st.set_page_config(page_title="晟崴塑膠-智能裝箱計算機", layout="wide")
+# 設定頁面配置
+st.set_page_config(page_title="晟崴塑膠-智能裝箱估算系統", layout="wide")
 
-st.title("📦 晟崴塑膠 - 智能裝箱計算機")
+# ==========================================
+# 1. 側邊欄：統一輸入區
+# ==========================================
+with st.sidebar:
+    st.header("⚙️ 參數設定")
+    
+    st.subheader("1. 紙箱尺寸 (內徑 mm)")
+    col1, col2, col3 = st.columns(3)
+    box_l = col1.number_input("長", value=500, step=10, key="box_l")
+    box_w = col2.number_input("寬", value=400, step=10, key="box_w")
+    box_h = col3.number_input("高", value=300, step=10, key="box_h")
+
+    st.subheader("2. 成品尺寸 (mm)")
+    p_col1, p_col2, p_col3 = st.columns(3)
+    prod_l = p_col1.number_input("長", value=120, step=1, key="prod_l")
+    prod_w = p_col2.number_input("寬", value=80, step=1, key="prod_w")
+    prod_h = p_col3.number_input("高", value=50, step=1, key="prod_h")
+
+    st.subheader("3. 成本與重量資訊")
+    unit_weight = st.number_input("成品單重 (g)", value=85.5, step=0.1)
+    unit_cost = st.number_input("成品單價 (NTD)", value=15.0, step=0.5)
+    
+    st.markdown("---")
+    st.subheader("4. 擺放策略")
+    orientation = st.radio(
+        "選擇擺放基準面：",
+        ('平放 (長x寬 接觸)', '側放 (長x高 接觸)', '直立 (寬x高 接觸)'),
+        index=0
+    )
+
+# ==========================================
+# 2. Python 後端計算邏輯 (恢復計算功能)
+# ==========================================
+
+# 定義不同擺放方式的邏輯
+if '平放' in orientation:
+    pL, pW, pH = prod_l, prod_w, prod_h
+    orient_code = 'flat'
+elif '側放' in orientation:
+    pL, pW, pH = prod_l, prod_h, prod_w
+    orient_code = 'side'
+else: # 直立
+    pL, pW, pH = prod_w, prod_h, prod_l
+    orient_code = 'upright'
+
+# 計算排列 (簡單矩陣，比較旋轉與否)
+# 方案 A: 不旋轉
+colsA = math.floor(box_l / pL)
+rowsA = math.floor(box_w / pW)
+countA = colsA * rowsA
+
+# 方案 B: 旋轉 90 度
+colsB = math.floor(box_l / pW)
+rowsB = math.floor(box_w / pL)
+countB = colsB * rowsB
+
+# 取最佳解
+if countB > countA:
+    final_cols, final_rows = colsB, rowsB
+    layer_count = countB
+    rotated_visual = 'true' # 傳給 JS 用
+    # 用於顯示的尺寸
+    display_L, display_W = pW, pL
+else:
+    final_cols, final_rows = colsA, rowsA
+    layer_count = countA
+    rotated_visual = 'false'
+    display_L, display_W = pL, pW
+
+# 計算垂直層數與總數
+layers = math.floor(box_h / pH)
+total_count = layer_count * layers
+
+# 計算商業數據
+total_weight_kg = (total_count * unit_weight) / 1000
+total_cost = total_count * unit_cost
+
+# 計算空間利用率
+prod_vol = prod_l * prod_w * prod_h * total_count
+box_vol = box_l * box_w * box_h
+utilization = (prod_vol / box_vol) * 100 if box_vol > 0 else 0
+
+
+# ==========================================
+# 3. 主畫面顯示
+# ==========================================
+
+st.title("📦 晟崴塑膠 - 智能裝箱估算系統")
+st.markdown("此工具整合裝箱模擬與成本重量試算，調整左側參數即可即時更新。")
+
+# 顯示關鍵指標 (Metrics)
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("📦 每箱總數量", f"{total_count} pcs", delta="層數: " + str(layers))
+m2.metric("⚖️ 每箱總重量", f"{total_weight_kg:.2f} kg", delta=f"單重: {unit_weight}g")
+m3.metric("💰 每箱總成本", f"${total_cost:,.0f}", delta=f"單價: ${unit_cost}")
+m4.metric("📊 空間利用率", f"{utilization:.1f}%", delta_color="normal" if utilization < 90 else "inverse")
+
 st.markdown("---")
 
-# 這裡是原本的 HTML/JS 工具程式碼，被包在一個 Python 字串變數中
-html_code = """
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <style>
-        /* 容器：限制影響範圍，只在 .sp-tool 內生效 */
-        .sp-tool {
-            font-family: 'Segoe UI', sans-serif;
-            background-color: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            border: 1px solid #e2e8f0;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 30px;
-            max-width: 900px;
-            margin: 0 auto;
-        }
+col_visual, col_details = st.columns([1.5, 1])
 
-        .sp-tool * {
-            box-sizing: border-box;
-        }
+with col_details:
+    st.subheader("📋 詳細數據")
+    st.info(f"""
+    **排列方式 ({orientation}):**
+    * **單層排列:** {final_cols} (排) x {final_rows} (列)
+    * **單層數量:** {layer_count} pcs
+    * **堆疊層數:** {layers} 層
+    
+    **尺寸檢核:**
+    * **單層高度:** {pH} mm
+    * **總堆疊高:** {layers * pH} mm (剩餘空間: {box_h - (layers * pH)} mm)
+    """)
+    
+    # 重量警示
+    if total_weight_kg > 18:
+        st.error(f"⚠️ **注意：** 整箱重量 ({total_weight_kg:.1f} kg) 已超過一般搬運建議 (18kg)，建議減少層數或更改包裝。")
+    else:
+        st.success("✅ 重量在安全搬運範圍內。")
 
-        /* 左側控制區 */
-        .sp-controls {
-            flex: 1;
-            min-width: 280px;
-        }
+with col_visual:
+    st.subheader("📐 裝箱俯視圖 (第一層)")
+    
+    # ==========================================
+    # 4. HTML/JS 視覺化組件 (自動接收 Python 變數)
+    # ==========================================
+    # 這裡我們使用 Python 的 f-string 將變數直接注入到 JavaScript 中
+    html_code = f"""
+    <!DOCTYPE html>
+    <html lang="zh-TW">
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body {{ margin: 0; display: flex; justify-content: center; align-items: center; background: #fff; font-family: 'Segoe UI', sans-serif; }}
+            .canvas-container {{ position: relative; border: 2px dashed #cbd5e1; padding: 20px; border-radius: 12px; }}
+            .legend {{ margin-top: 10px; text-align: center; color: #64748b; font-size: 12px; }}
+        </style>
+    </head>
+    <body>
+        <div>
+            <div class="canvas-container">
+                <canvas id="packingCanvas" width="400" height="350"></canvas>
+            </div>
+            <div class="legend">
+                <span style="display:inline-block; width:10px; height:10px; background:#60a5fa; border:1px solid #1e40af; margin-right:5px;"></span>成品
+                <span style="margin-left:15px; display:inline-block; width:10px; height:10px; border:2px solid #334155; margin-right:5px;"></span>紙箱邊界
+            </div>
+        </div>
 
-        /* 右側視覺區 */
-        .sp-visualizer {
-            flex: 1;
-            min-width: 280px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            background: #f8fafc;
-            padding: 20px;
-            border-radius: 8px;
-            border: 1px solid #f1f5f9;
-        }
-
-        .sp-tool h3 {
-            margin-top: 0;
-            color: #1e293b;
-            font-size: 1.1rem;
-            border-bottom: 2px solid #2563eb;
-            padding-bottom: 8px;
-            display: inline-block;
-            margin-bottom: 15px;
-        }
-        
-        .sp-input-group { margin-bottom: 15px; }
-        .sp-label { display: block; margin-bottom: 5px; font-weight: 600; color: #475569; font-size: 0.9rem;}
-        
-        .sp-input-row { display: flex; gap: 8px; }
-        
-        .sp-input {
-            width: 100%;
-            padding: 8px 10px;
-            border: 1px solid #cbd5e1;
-            border-radius: 4px;
-            font-size: 1rem;
-            transition: border 0.2s;
-        }
-        .sp-input:focus { border-color: #2563eb; outline: none; }
-
-        /* 按鈕群組 */
-        .sp-btn-group {
-            display: flex;
-            gap: 8px;
-            margin: 15px 0;
-        }
-
-        .sp-btn {
-            flex: 1;
-            padding: 10px;
-            border: 1px solid #2563eb;
-            background: white;
-            color: #2563eb;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 0.9rem;
-            transition: all 0.2s;
-        }
-
-        .sp-btn:hover { background: #eff6ff; }
-        .sp-btn.active {
-            background: #2563eb;
-            color: white;
-            box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
-        }
-
-        /* 數據統計區 */
-        .sp-stats {
-            margin-top: 15px;
-            padding: 15px;
-            background: #eff6ff;
-            border-radius: 6px;
-            border: 1px solid #dbeafe;
-        }
-        .sp-stat-item {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 0.9rem;
-            color: #334155;
-        }
-        .sp-stat-item.total {
-            font-size: 1.1rem;
-            font-weight: bold;
-            color: #2563eb;
-            border-top: 1px solid #bfdbfe;
-            padding-top: 10px;
-            margin-top: 10px;
-        }
-
-        /* Canvas 容器 */
-        .sp-canvas-wrapper {
-            position: relative;
-            margin-top: 10px;
-            border: 2px dashed #cbd5e1;
-            padding: 10px;
-            border-radius: 8px;
-            background: #fff;
-            display: flex;
-            justify-content: center;
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.02);
-        }
-
-        .sp-legend {
-            font-size: 0.8rem;
-            color: #64748b;
-            margin-top: 10px;
-            text-align: center;
-        }
-    </style>
-
-    <div class="sp-tool" id="shengwei-packing-calculator">
-        <div class="sp-controls">
-            <h3>📦 智能裝箱參數設定</h3>
+        <script>
+            // 從 Python 傳入的變數
+            const boxL = {box_l};
+            const boxW = {box_w};
             
-            <div class="sp-input-group">
-                <label class="sp-label">紙箱內徑 (mm)</label>
-                <div class="sp-input-row">
-                    <input type="number" class="sp-input sp-calc-trigger" id="sw-boxL" placeholder="長" value="500">
-                    <input type="number" class="sp-input sp-calc-trigger" id="sw-boxW" placeholder="寬" value="400">
-                    <input type="number" class="sp-input sp-calc-trigger" id="sw-boxH" placeholder="高" value="300">
-                </div>
-            </div>
+            // 視覺呈現用的長寬 (已經由 Python 判斷過是否旋轉)
+            const prodVisualL = {display_L};
+            const prodVisualW = {display_W};
+            
+            const cols = {final_cols};
+            const rows = {final_rows};
 
-            <div class="sp-input-group">
-                <label class="sp-label">成品尺寸 (mm)</label>
-                <div class="sp-input-row">
-                    <input type="number" class="sp-input sp-calc-trigger" id="sw-prodL" placeholder="長" value="120">
-                    <input type="number" class="sp-input sp-calc-trigger" id="sw-prodW" placeholder="寬" value="80">
-                    <input type="number" class="sp-input sp-calc-trigger" id="sw-prodH" placeholder="高" value="50">
-                </div>
-            </div>
-
-            <label class="sp-label">選擇擺放基準面 (自動旋轉)</label>
-            <div class="sp-btn-group">
-                <button class="sp-btn active" onclick="SW_PackTool.setOrientation('flat', this)">
-                    平放<br><span style="font-size:0.8em; opacity:0.8">(L x W)</span>
-                </button>
-                <button class="sp-btn" onclick="SW_PackTool.setOrientation('side', this)">
-                    側放<br><span style="font-size:0.8em; opacity:0.8">(L x H)</span>
-                </button>
-                <button class="sp-btn" onclick="SW_PackTool.setOrientation('upright', this)">
-                    直立<br><span style="font-size:0.8em; opacity:0.8">(W x H)</span>
-                </button>
-            </div>
-
-            <div class="sp-stats">
-                <div class="sp-stat-item"><span>單層排列 (排 x 列):</span> <span id="sw-layer-layout">-</span></div>
-                <div class="sp-stat-item"><span>每層數量:</span> <span id="sw-per-layer">-</span></div>
-                <div class="sp-stat-item"><span>可堆疊層數:</span> <span id="sw-layers">-</span></div>
-                <div class="sp-stat-item"><span>空間利用率:</span> <span id="sw-utilization">-</span></div>
-                <div class="sp-stat-item total"><span>每箱總數量:</span> <span id="sw-total-count">-</span></div>
-            </div>
-        </div>
-
-        <div class="sp-visualizer">
-            <h3>📐 裝箱俯視圖 (第一層)</h3>
-            <div class="sp-canvas-wrapper">
-                <canvas id="sw-packingCanvas" width="280" height="280"></canvas>
-            </div>
-            <div class="sp-legend">
-                灰色框線：紙箱內徑 / 藍色區塊：成品<br>
-                視角：Top View (由上往下看)
-            </div>
-        </div>
-    </div>
-
-    <script>
-        const SW_PackTool = {
-            orientation: 'flat',
-            init: function() {
-                const inputs = document.querySelectorAll('.sp-calc-trigger');
-                inputs.forEach(input => {
-                    input.addEventListener('input', () => this.calculate());
-                });
-                setTimeout(() => this.calculate(), 300);
-            },
-            setOrientation: function(type, btnElement) {
-                this.orientation = type;
-                document.querySelectorAll('.sp-btn').forEach(b => b.classList.remove('active'));
-                btnElement.classList.add('active');
-                this.calculate();
-            },
-            calculate: function() {
-                const boxL = parseFloat(document.getElementById('sw-boxL').value) || 0;
-                const boxW = parseFloat(document.getElementById('sw-boxW').value) || 0;
-                const boxH = parseFloat(document.getElementById('sw-boxH').value) || 0;
-                const rawProdL = parseFloat(document.getElementById('sw-prodL').value) || 0;
-                const rawProdW = parseFloat(document.getElementById('sw-prodW').value) || 0;
-                const rawProdH = parseFloat(document.getElementById('sw-prodH').value) || 0;
-
-                if (boxL === 0 || rawProdL === 0) return;
-
-                let pL, pW, pH;
-                switch (this.orientation) {
-                    case 'flat':    pL = rawProdL; pW = rawProdW; pH = rawProdH; break;
-                    case 'side':    pL = rawProdL; pW = rawProdH; pH = rawProdW; break;
-                    case 'upright': pL = rawProdW; pW = rawProdH; pH = rawProdL; break;
-                }
-
-                const colsA = Math.floor(boxL / pL);
-                const rowsA = Math.floor(boxW / pW);
-                const countA = colsA * rowsA;
-
-                const colsB = Math.floor(boxL / pW);
-                const rowsB = Math.floor(boxW / pL);
-                const countB = colsB * rowsB;
-
-                let bestL, bestW, countLayer, cols, rows;
-                if (countB > countA) {
-                    bestL = pW; bestW = pL; cols = colsB; rows = rowsB; countLayer = countB;
-                } else {
-                    bestL = pL; bestW = pW; cols = colsA; rows = rowsA; countLayer = countA;
-                }
-
-                const layers = Math.floor(boxH / pH);
-                const totalCount = countLayer * layers;
-                const productVol = rawProdL * rawProdW * rawProdH * totalCount;
-                const boxVol = boxL * boxW * boxH;
-                const utilization = ((productVol / boxVol) * 100).toFixed(1);
-
-                document.getElementById('sw-layer-layout').textContent = `${cols} x ${rows}`;
-                document.getElementById('sw-per-layer').textContent = countLayer;
-                document.getElementById('sw-layers').textContent = layers;
-                document.getElementById('sw-utilization').textContent = `${utilization}%`;
-                document.getElementById('sw-total-count').textContent = totalCount;
-
-                this.draw(boxL, boxW, bestL, bestW, cols, rows);
-            },
-            draw: function(boxL, boxW, pL, pW, cols, rows) {
-                const canvas = document.getElementById('sw-packingCanvas');
+            function draw() {{
+                const canvas = document.getElementById('packingCanvas');
                 const ctx = canvas.getContext('2d');
-                const maxCanvasSize = 280;
-                const scale = Math.min((maxCanvasSize - 20) / boxL, (maxCanvasSize - 20) / boxW);
                 
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                // 自動縮放邏輯
+                const maxW = 380;
+                const maxH = 330;
+                const scale = Math.min((maxW) / boxL, (maxH) / boxW);
+                
                 const drawBoxL = boxL * scale;
                 const drawBoxW = boxW * scale;
                 const startX = (canvas.width - drawBoxL) / 2;
                 const startY = (canvas.height - drawBoxW) / 2;
 
-                ctx.strokeStyle = '#334155';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(startX, startY, drawBoxL, drawBoxW);
-                
-                ctx.fillStyle = '#64748b';
-                ctx.font = '12px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(boxL, canvas.width/2, startY - 6); 
-                ctx.textAlign = 'left';
-                ctx.fillText(boxW, startX + drawBoxL + 6, canvas.height/2); 
+                // 清空
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                ctx.fillStyle = '#60a5fa'; 
-                ctx.strokeStyle = '#1e40af'; 
+                // 畫紙箱
+                ctx.strokeStyle = '#334155';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(startX, startY, drawBoxL, drawBoxW);
+
+                // 標示紙箱尺寸
+                ctx.fillStyle = '#64748b';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(boxL + ' mm', canvas.width/2, startY - 8);
+                ctx.textAlign = 'left';
+                ctx.fillText(boxW + ' mm', startX + drawBoxL + 8, canvas.height/2);
+
+                // 畫產品
+                ctx.fillStyle = '#60a5fa';
+                ctx.strokeStyle = '#1e40af';
                 ctx.lineWidth = 1;
 
-                const drawProdL = pL * scale;
-                const drawProdW = pW * scale;
+                const drawProdL = prodVisualL * scale;
+                const drawProdW = prodVisualW * scale;
 
-                for (let r = 0; r < rows; r++) {
-                    for (let c = 0; c < cols; c++) {
+                for (let r = 0; r < rows; r++) {{
+                    for (let c = 0; c < cols; c++) {{
                         const x = startX + (c * drawProdL);
                         const y = startY + (r * drawProdW);
+                        // 留一點間隙
                         const pad = 1; 
                         ctx.fillRect(x + pad, y + pad, drawProdL - 2*pad, drawProdW - 2*pad);
                         ctx.strokeRect(x + pad, y + pad, drawProdL - 2*pad, drawProdW - 2*pad);
-                    }
-                }
-            }
-        };
-        SW_PackTool.init();
-    </script>
-</html>
-"""
-
-# 使用 components.html 將上面的 HTML 程式碼渲染出來
-# height 參數可以根據您的頁面調整，確保不出現捲軸
-components.html(html_code, height=650, scrolling=True)
+                    }}
+                }}
+            }}
+            
+            // 執行繪圖
+            draw();
+        </script>
+    </body>
+    </html>
+    """
+    
+    # 渲染 HTML
+    components.html(html_code, height=450)
