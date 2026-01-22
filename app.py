@@ -7,24 +7,39 @@ import math
 st.set_page_config(page_title="晟崴塑膠-智能裝箱選型系統", layout="wide")
 
 # ==========================================
-# 0. 定義公司標準紙箱資料庫 (可在此擴充)
+# 0. 定義公司標準紙箱資料庫 (依據報價單建立)
 # ==========================================
-STANDARD_BOXES = [
-    {"name": "標準A規箱 (大)", "L": 580, "W": 480, "H": 400},
-    {"name": "標準B規箱 (中)", "L": 500, "W": 400, "H": 300},
-    {"name": "標準C規箱 (小)", "L": 400, "W": 300, "H": 250},
-    {"name": "長型特規箱", "L": 600, "W": 300, "H": 300},
-    {"name": "扁平特規箱", "L": 500, "W": 500, "H": 200},
+# 注意：這裡輸入的是 PDF 上的「外徑」尺寸，計算時會自動扣除厚度
+STANDARD_BOXES_RAW = [
+    {"name": "方北特專用箱", "L": 564, "W": 424, "H": 362},
+    {"name": "NO.2-2 紙箱", "L": 570, "W": 338, "H": 320},
+    {"name": "NO.3 紙箱",   "L": 570, "W": 340, "H": 248},
+    {"name": "NO.4 紙箱",   "L": 324, "W": 228, "H": 226},
+    {"name": "NO.8 紙箱",   "L": 450, "W": 306, "H": 424},
+    {"name": "NO.9 紙箱",   "L": 650, "W": 470, "H": 460},
+    {"name": "NO.10 紙箱",  "L": 648, "W": 468, "H": 360},
+    {"name": "NO.14 紙箱",  "L": 392, "W": 314, "H": 412},
+    {"name": "NO.15-1 紙箱","L": 502, "W": 492, "H": 408},
+    {"name": "NO.16 紙箱",  "L": 534, "W": 400, "H": 340},
+    {"name": "NO.17 紙箱",  "L": 536, "W": 400, "H": 560},
 ]
 
 # ==========================================
-# 1. 核心計算函數 (封裝邏輯以重複使用)
+# 1. 核心計算函數
 # ==========================================
-def calculate_packing(box_l, box_w, box_h, prod_l, prod_w, prod_h):
+def calculate_packing(box_ext_l, box_ext_w, box_ext_h, prod_l, prod_w, prod_h, box_thickness, divider_thickness):
     """
     計算單一紙箱在三種擺放方式下的最佳解
-    回傳：(總數量, 最佳擺放方式描述, 變數字典)
     """
+    # 1. 轉換為內徑 (扣除五層箱厚度)
+    box_l = box_ext_l - box_thickness
+    box_w = box_ext_w - box_thickness
+    box_h = box_ext_h - box_thickness # 高度也要扣，避免蓋不起來
+    
+    # 若扣除後尺寸不合理，回傳 0
+    if box_l <= 0 or box_w <= 0 or box_h <= 0:
+        return 0, {}
+
     best_count = -1
     best_info = {}
     
@@ -36,7 +51,7 @@ def calculate_packing(box_l, box_w, box_h, prod_l, prod_w, prod_h):
     ]
 
     for label, pL, pW, pH, code in strategies:
-        # 檢查尺寸是否塞得進去
+        # 檢查單一產品是否塞得進內徑
         if pL > box_l or pW > box_w or pH > box_h:
             continue
 
@@ -54,14 +69,30 @@ def calculate_packing(box_l, box_w, box_h, prod_l, prod_w, prod_h):
         if countB > countA:
             layer_count = countB
             cols, rows = colsB, rowsB
-            vis_L, vis_W = pW, pL # 視覺用的長寬
+            vis_L, vis_W = pW, pL 
         else:
             layer_count = countA
             cols, rows = colsA, rowsA
-            vis_L, vis_W = pL, pW # 視覺用的長寬
+            vis_L, vis_W = pL, pW 
         
-        # 計算垂直層數
-        layers = math.floor(box_h / pH)
+        # --- 關鍵修正：計算垂直層數 (考慮隔板) ---
+        # 公式： 層數 * 產品高 + (層數 - 1) * 隔板厚 <= 紙箱內高
+        # 移項推導 => 層數 * (產品高 + 隔板厚) <= 紙箱內高 + 隔板厚
+        if divider_thickness > 0:
+            layers = math.floor( (box_h + divider_thickness) / (pH + divider_thickness) )
+        else:
+            layers = math.floor(box_h / pH)
+            
+        # 確保至少能放一層 (如果一層都放不下前面檢查應該擋掉了，但保險起見)
+        layers = max(1, layers)
+        
+        # 再次檢查高度是否真的足夠 (雙重確認)
+        total_stack_height = (layers * pH) + ((layers - 1) * divider_thickness)
+        if total_stack_height > box_h:
+            layers -= 1 # 減一層
+        
+        if layers < 1: continue
+
         total = layer_count * layers
         
         # 記錄最佳解
@@ -72,212 +103,32 @@ def calculate_packing(box_l, box_w, box_h, prod_l, prod_w, prod_h):
                 'layers': layers,
                 'layer_count': layer_count,
                 'orientation_label': label,
-                'orientation_code': code,
                 'cols': cols,
                 'rows': rows,
                 'vis_L': vis_L,
                 'vis_W': vis_W,
-                'pH': pH
+                'pH': pH,
+                'total_stack_h': (layers * pH) + (max(0, layers-1) * divider_thickness),
+                'box_in_h': box_h # 紀錄內徑高供參考
             }
             
     return best_count, best_info
 
 # ==========================================
-# 2. 側邊欄：只輸入產品資訊
+# 2. 側邊欄：輸入區
 # ==========================================
 with st.sidebar:
-    st.header("1. 產品規格輸入")
+    st.title("⚙️ 參數設定")
     
-    st.subheader("成品尺寸 (mm)")
+    st.header("1. 產品規格")
     p_col1, p_col2, p_col3 = st.columns(3)
     prod_l = p_col1.number_input("長", value=120, step=1)
     prod_w = p_col2.number_input("寬", value=80, step=1)
     prod_h = p_col3.number_input("高", value=50, step=1)
 
-    st.subheader("成本與重量")
-    unit_weight = st.number_input("單重 (g)", value=85.5, step=0.1)
-    unit_cost = st.number_input("單價 ($)", value=15.0, step=0.5)
-    
-    st.info("💡 提示：系統會自動測試所有紙箱，並找出每個紙箱「裝最多」的擺放方式。")
+    st.header("2. 包材係數")
+    box_thickness = st.number_input("5層箱扣除厚度 (mm)", value=10, step=1, help="計算內徑時，長寬高會各扣除此數值。")
+    divider_thickness = st.number_input("層間隔板厚度 (mm)", value=3, step=1, help="每層產品中間會加上此厚度的隔板。")
 
-# ==========================================
-# 3. 主畫面：列表與詳情
-# ==========================================
-st.title("📦 晟崴塑膠 - 智能裝箱選型系統")
-
-# --- 步驟 A: 批次計算所有紙箱 ---
-results = []
-for box in STANDARD_BOXES:
-    count, info = calculate_packing(box['L'], box['W'], box['H'], prod_l, prod_w, prod_h)
-    
-    if count > 0:
-        # 計算附屬數據
-        total_weight = (count * unit_weight) / 1000
-        total_cost = count * unit_cost
-        box_vol = box['L'] * box['W'] * box['H']
-        prod_vol = prod_l * prod_w * prod_h * count
-        utilization = (prod_vol / box_vol) * 100 if box_vol > 0 else 0
-        
-        results.append({
-            "紙箱名稱": box['name'],
-            "每箱數量 (pcs)": count,
-            "最佳擺放": info['orientation_label'],
-            "總重量 (kg)": round(total_weight, 2),
-            "空間利用率 (%)": round(utilization, 1),
-            "總成本 ($)": total_cost,
-            # 隱藏欄位 (用於後續繪圖)
-            "_L": box['L'], "_W": box['W'], "_H": box['H'], "_info": info
-        })
-
-if not results:
-    st.error("❌ 產品尺寸過大，無法裝入任何現有標準紙箱，請檢查尺寸。")
-    st.stop()
-
-# 轉為 DataFrame 並排序 (數量由多到少)
-df = pd.DataFrame(results)
-df = df.sort_values(by="每箱數量 (pcs)", ascending=False).reset_index(drop=True)
-
-# --- 步驟 B: 顯示互動表格 ---
-st.subheader("📋 標準紙箱裝箱試算列表")
-st.caption("請點選下方表格中的一行，以查看詳細排列圖：")
-
-# 使用 dataframe 的選取功能 (on_select)
-event = st.dataframe(
-    df,
-    use_container_width=True,
-    hide_index=True,
-    column_order=["紙箱名稱", "每箱數量 (pcs)", "總重量 (kg)", "空間利用率 (%)", "最佳擺放"],
-    selection_mode="single-row",
-    on_select="rerun"  # 點選後重新執行以顯示詳情
-)
-
-# --- 步驟 C: 根據選取顯示詳情 ---
-# 取得選取的列索引
-selected_rows = event.selection.rows
-
-if len(selected_rows) > 0:
-    idx = selected_rows[0]
-    selected_data = df.iloc[idx]
-    
-    # 提取繪圖所需數據
-    box_name = selected_data["紙箱名稱"]
-    box_l = selected_data["_L"]
-    box_w = selected_data["_W"]
-    info = selected_data["_info"]
-    
-    st.markdown("---")
-    st.header(f"🔍 詳細分析：{box_name}")
-    
-    # 顯示 Metrics
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("📦 每箱數量", f"{selected_data['每箱數量 (pcs)']} pcs", delta=f"{info['layers']} 層")
-    m2.metric("⚖️ 總重量", f"{selected_data['總重量 (kg)']} kg", 
-              delta="⚠️ 超重" if selected_data['總重量 (kg)'] > 18 else "OK",
-              delta_color="inverse" if selected_data['總重量 (kg)'] > 18 else "normal")
-    m3.metric("💰 總成本", f"${selected_data['總成本 ($)']:,.0f}")
-    m4.metric("📊 利用率", f"{selected_data['空間利用率 (%)']}%")
-
-    col_visual, col_text = st.columns([1.5, 1])
-    
-    with col_text:
-        st.success(f"✅ 系統建議最佳擺放：**{info['orientation_label']}**")
-        st.info(f"""
-        **紙箱規格:** {box_l} x {box_w} x {selected_data['_H']} mm
-        
-        **堆疊細節:**
-        * 單層排列: {info['cols']} (排) x {info['rows']} (列)
-        * 單層數量: {info['layer_count']} pcs
-        * 堆疊層數: {info['layers']} 層
-        * 堆疊高度: {info['layers'] * info['pH']} mm (剩餘 {selected_data['_H'] - (info['layers'] * info['pH'])} mm)
-        """)
-
-    with col_visual:
-        st.subheader("📐 裝箱俯視示意圖")
-        
-        # 注入變數到 HTML
-        html_code = f"""
-        <!DOCTYPE html>
-        <html lang="zh-TW">
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                body {{ margin: 0; display: flex; justify-content: center; align-items: center; background: #fff; font-family: 'Segoe UI', sans-serif; }}
-                .canvas-container {{ position: relative; border: 2px dashed #cbd5e1; padding: 20px; border-radius: 12px; }}
-                .legend {{ margin-top: 10px; text-align: center; color: #64748b; font-size: 12px; }}
-            </style>
-        </head>
-        <body>
-            <div>
-                <div class="canvas-container">
-                    <canvas id="packingCanvas" width="400" height="350"></canvas>
-                </div>
-                <div class="legend">
-                    <span style="display:inline-block; width:10px; height:10px; background:#60a5fa; border:1px solid #1e40af; margin-right:5px;"></span>成品
-                    <span style="margin-left:15px; display:inline-block; width:10px; height:10px; border:2px solid #334155; margin-right:5px;"></span>紙箱邊界
-                </div>
-            </div>
-
-            <script>
-                const boxL = {box_l};
-                const boxW = {box_w};
-                const prodVisualL = {info['vis_L']};
-                const prodVisualW = {info['vis_W']};
-                const cols = {info['cols']};
-                const rows = {info['rows']};
-
-                function draw() {{
-                    const canvas = document.getElementById('packingCanvas');
-                    const ctx = canvas.getContext('2d');
-                    
-                    const maxW = 380;
-                    const maxH = 330;
-                    const scale = Math.min((maxW) / boxL, (maxH) / boxW);
-                    
-                    const drawBoxL = boxL * scale;
-                    const drawBoxW = boxW * scale;
-                    const startX = (canvas.width - drawBoxL) / 2;
-                    const startY = (canvas.height - drawBoxW) / 2;
-
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-                    // 畫紙箱
-                    ctx.strokeStyle = '#334155';
-                    ctx.lineWidth = 3;
-                    ctx.strokeRect(startX, startY, drawBoxL, drawBoxW);
-
-                    // 標示尺寸
-                    ctx.fillStyle = '#64748b';
-                    ctx.font = '14px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(boxL + ' mm', canvas.width/2, startY - 8);
-                    ctx.textAlign = 'left';
-                    ctx.fillText(boxW + ' mm', startX + drawBoxL + 8, canvas.height/2);
-
-                    // 畫產品
-                    ctx.fillStyle = '#60a5fa';
-                    ctx.strokeStyle = '#1e40af';
-                    ctx.lineWidth = 1;
-
-                    const drawProdL = prodVisualL * scale;
-                    const drawProdW = prodVisualW * scale;
-
-                    for (let r = 0; r < rows; r++) {{
-                        for (let c = 0; c < cols; c++) {{
-                            const x = startX + (c * drawProdL);
-                            const y = startY + (r * drawProdW);
-                            const pad = 1; 
-                            ctx.fillRect(x + pad, y + pad, drawProdL - 2*pad, drawProdW - 2*pad);
-                            ctx.strokeRect(x + pad, y + pad, drawProdL - 2*pad, drawProdW - 2*pad);
-                        }}
-                    }}
-                }}
-                draw();
-            </script>
-        </body>
-        </html>
-        """
-        components.html(html_code, height=450)
-
-else:
-    # 若尚未選取任何列
-    st.info("👆 請在上方列表中點選一個紙箱方案，即可在此處查看詳細圖解與分析。")
+    st.header("3. 成本與重量")
+    unit_weight = st.number_input("單重 (g)", value=85.5,
