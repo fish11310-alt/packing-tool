@@ -10,7 +10,7 @@ st.set_page_config(page_title="晟崴塑膠-智能裝箱選型系統", layout="w
 # 🔒 安全防護：密碼鎖
 # ==========================================
 # 請修改下方的密碼
-INTERNAL_PASSWORD = "sw888" 
+INTERNAL_PASSWORD = "16263719" 
 
 with st.sidebar:
     st.header("🔐 系統登入")
