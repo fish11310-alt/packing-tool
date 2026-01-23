@@ -7,12 +7,29 @@ import math
 st.set_page_config(page_title="晟崴塑膠-智能裝箱選型系統", layout="wide")
 
 # ==========================================
+# 🔒 安全防護：密碼鎖
+# ==========================================
+# 請修改下方的密碼
+INTERNAL_PASSWORD = "sw888" 
+
+with st.sidebar:
+    st.header("🔐 系統登入")
+    input_pass = st.text_input("請輸入授權密碼", type="password")
+    
+    if input_pass != INTERNAL_PASSWORD:
+        st.warning("請輸入正確密碼以存取公司資料。")
+        st.info("若無密碼請聯繫生管或是開發人員。")
+        st.stop() # ⛔ 密碼錯誤，程式在此停止，不顯示下方敏感資料
+    else:
+        st.success("登入成功")
+        st.divider()
+
+# ==========================================
 # 0. 定義公司標準紙箱資料庫
 # ==========================================
-# 常用規格清單 (這些會被強制置頂)
+# 只有通過上方密碼檢查的人，才能看到這裡的數據
 FAVORITE_BOXES = ["NO.2-2 紙箱", "NO.8 紙箱", "NO.4 紙箱"]
 
-# 資料來源：晟崴塑膠紙箱規格一覽表.pdf
 STANDARD_BOXES_RAW = [
     {"name": "方北特專用箱", "L": 564, "W": 424, "H": 362, "price": 39.0, "div_price": 46.0},
     {"name": "NO.2-2 紙箱", "L": 570, "W": 338, "H": 320, "price": 24.5, "div_price": 2.3},
@@ -31,9 +48,6 @@ STANDARD_BOXES_RAW = [
 # 1. 核心計算函數
 # ==========================================
 def calculate_single_orientation(box_in_l, box_in_w, box_in_h, pL, pW, pH, divider_thickness, strategy_name):
-    """
-    計算特定擺放方向的裝箱數
-    """
     if pL > box_in_l or pW > box_in_w or pH > box_in_h:
         return None
 
@@ -59,7 +73,7 @@ def calculate_single_orientation(box_in_l, box_in_w, box_in_h, pL, pW, pH, divid
         vis_L, vis_W = pL, pW
         rotated = False
     
-    # 計算垂直層數 (考慮隔板)
+    # 計算垂直層數
     if divider_thickness > 0:
         layers = math.floor( (box_in_h + divider_thickness) / (pH + divider_thickness) )
     else:
@@ -89,9 +103,6 @@ def calculate_single_orientation(box_in_l, box_in_w, box_in_h, pL, pW, pH, divid
     }
 
 def find_best_box_option(box_data, prod_l, prod_w, prod_h, box_thick, div_thick):
-    """
-    為列表頁找出某個紙箱的「最佳」建議
-    """
     in_L, in_W, in_H = box_data['L']-box_thick, box_data['W']-box_thick, box_data['H']-box_thick
     if in_L<=0 or in_W<=0 or in_H<=0: return None
 
@@ -161,7 +172,7 @@ for box in STANDARD_BOXES_RAW:
             "紙箱規格": display_name,
             "建議每箱數量": best['count'],
             "單pcs包材費": cost_per_pcs, 
-            "單pcs包材費(顯示)": f"${cost_per_pcs:.3f}", # 顯示3位小數更精準
+            "單pcs包材費(顯示)": f"${cost_per_pcs:.3f}", 
             "建議擺放": best['strategy'],
             "總重量 (kg)": round((best['count'] * unit_weight) / 1000, 2),
             "raw_box": box,
@@ -175,8 +186,7 @@ if not table_data:
 
 df = pd.DataFrame(table_data)
 
-# --- NEW: 計算最佳推薦 (單pcs包材費最低者) ---
-# 先按成本排序，若成本一樣則選數量多的
+# 計算最佳推薦 (單pcs包材費最低者)
 best_option_df = df.sort_values(by=["單pcs包材費", "建議每箱數量"], ascending=[True, False])
 best_box = best_option_df.iloc[0]
 
@@ -199,7 +209,6 @@ with st.container():
 st.markdown("---")
 
 # --- 步驟 B: 顯示完整列表 ---
-# 排序邏輯：1.常用規格置頂 2.數量由多到少
 df = df.sort_values(by=["_sort_priority", "建議每箱數量"], ascending=[False, False]).reset_index(drop=True)
 
 st.subheader("📋 裝箱試算列表 (常用規格置頂)")
@@ -261,7 +270,7 @@ if len(event.selection.rows) > 0:
             st.subheader("2. 成本與數據")
             st.metric("📦 每箱數量", f"{calc_res['count']} pcs", delta=f"{calc_res['layers']} 層")
             
-            st.metric("💰 單pcs包裝成本", f"${cost_per_pcs:.3f}", 
+            st.metric("💰 單pcs包材費", f"${cost_per_pcs:.3f}", 
                      delta=f"總包材費: ${total_pkg_cost:.1f}", delta_color="inverse")
             
             st.metric("⚖️ 整箱總重", f"{total_weight:.2f} kg",
